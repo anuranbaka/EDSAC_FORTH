@@ -1,0 +1,13 @@
+EDSAC Forth takes many conventions from the original "Going Forth" FORTH, JonesForth
+and SectorForth/MilliForth. So it's helpful to have some docs on those.
+I think SectorForth is the only one not well doc'd, so I'm writing the needed details here.
+In particular, anything that would need to be known to port code from them to other systems.
+
+
+Undocumented conventions from SectorForth and MilliForth:
+- : is a primitive word, as is ; 
+- - These are the only two words not called out in README. I checked.
+- The top bit of the *word* pointed to by LATEST indicates IMMEDIATE
+- The top bit of the *byte* pointed to by LATEST indicates HIDDEN
+- The unaligned access loads of x86 are required for various things to work
+

@@ -1,0 +1,460 @@
+[File of subroutines for FORTH]
+[Over time, this file seems to be
+evolving into a full FORTH system]
+[For now, the usage is
+1. Run this file by pressing "Start"
+2. {Optional} Switch tapes for user input (See end of file for instructions)
+3. Press "Reset" to run demo FORTH code
+]
+
+[
+-------------
+MEMORY LAYOUT
+-------------
+* = is address (preshifted 1)
+? = is binary (<0 = True)
+
+56-63  Junk Registers
+
+
+64 IP            PFA        0 1
+66 IP_odd?       IP_word*   2 3
+68 token         &CFA       4 5
+70 W             X          6 7
+72 Y             Z          8 9
+74 SP            RP         10 11
+76 LATEST        HERE       12 13]
+
+[----------------------------
+Forward declarations
+-----------------------------]
+[Dictionary] T48K  P 256 F [set dict address in &(=48)]
+[Registers]  T45K  P 64  F [set register address in H(=45)]
+[Constants]  T46K  P 768 F [in N(=46)]
+[Builtins]   T53K  P 512 F [in B(=53)]
+[SP and RP]  E25K T10H P16H P24H [=register regions 16,24]
+
+
+[Magic Incantations to know:
+ T22K R2047 {?}
+      -- Starts assembling at the location in function parameter ?
+         Works by setting the transfer order to "T 0 ? - 1F"
+ E25K T{X}{?}
+      -- Same as above, but can offset by X
+         Works by jumping out over the transfer increment on next order
+         assembled, as long as it's positive
+ E25K E{?}
+      -- Jump out of assembler to location *
+ GK
+      -- Sets @ to next instruction
+
+]
+
+
+[constants]
+E25K TN [Assemble at N]
+P0D    [0: "1"]
+A0F    [1: "A0F"]
+P63D   [2: "0x7F"]
+E0F    [3: "E0F"]
+B1F    [4: "1F - E0F"]
+P&     [5: "dict"]
+A1F    [6: "A1F"]
+P8D    [7: "17"]
+P8456F [8: "<...>"]
+@1536F [9: <CrLfP> << 2]
+Q0F    [10: "Q0F"]
+P1F    [11: "P1F"]
+T0F    [12: "T0F"]
+P2047D [13: "P2047D"]
+#0F    [14: "#0F"]
+*0F    [15: "*0F"]
+F0F    [16: "D0F"]
+D0F    [17  "F0F]
+
+
+[the Dictionary]
+T22K R2047&    [Assemble at &]
+ZF P& [sentinal entry 0 that says to jump to ZF]
+
+
+
+[----------------------------]
+[SUB NEXT part 1: load the token at token address given in the IP}
+[----------------------------]
+
+E25K TB
+GK
+T 1023 F    [Dirty accumulator entry point]
+A H   [A ip F]   [Typical :next:  ]
+A 0 N [:rld: A "1" F]
+U H   [:rld2: U ip F]
+R 1 F
+U 2 #H [U tmp0 D / U IP_odd? D]
+L 0 D
+T 3 H  [T tmp1 F/ T &IP_word F]
+A 3 H  [A tmp1 F]
+L 0 D
+A 1 N  [A "A 0 F" F]
+T 12 @  [T ifetch F]
+ZF     [:ifetch: (A * F) ]
+A 2 H  [A tmp0 F / A IP_odd? F]
+G 16 @ [G lo F]
+R 64 F
+T 4 H [:lo: T tmp2 F / T token F]
+H 2 N [H "0xFF" F]
+C 4 H [C tmp2 F / C token F]
+U 4 H [U token F]
+[TOKEN is in acc and correct]
+XF [No-op, in case we want to temp jump somewhere]
+[----------------------------]
+[SUB NEXT part 2:  load the CFA,PFA for TOKEN given in the accumulator
+ and GOOOOOOOOOO!}
+[----------------------------]
+  GK
+L 1 F
+A 5 N [A "dict" F]
+A 6 N [A "A 1 F" F]
+T 4 @ [T fchcfa F]
+ZF    [:fchcfa: (A*F) ]  [a277f->1352 ]
+G 12 @   [G nadr F]
+A 3 N [ A "E 0 F" F]
+U 11 @ [ U t1 F ]
+A 4 N [ A "1F - E 0 F" F ]
+T 1 H [ T pfa F ]
+XF    [debug noop]
+ZF    [ :t1: (E * F) Jump to code!]
+[---------------------------]
+[Deal with special opcodes]
+[---------------------------]
+  GK
+  T55K
+P@         [Store backup @ in V]
+  TZ
+A 10 N [:nadr: A "Q0F" F] [arrive here if negative opcode in address]
+E 20 @  [E vcode F] [for V(-1) opcodes (FORTH)]
+A 10 N  [A "Q0F" F]
+E 7 @   [E ccode F] [for C(-2) opcodes (addresses)]
+A 3 N   [A "E0F" F]
+E 31 @   [E bcode F] [for GAB opcodes (binary that uses stack)]
+ZF     [trap if unknown negative command type]
+
+[Implement fixed address @ words (C words)]
+XF    [:ccode: debug code]
+  GK
+  T 49 K P@    [Store in L]
+  TZ
+A 1 N [:ccode: A "A 0 F" F]   [Load from address in acc]
+  GK
+T 1 @ [T "$+1" F]
+ZF    [(A*F)]
+T 6 H [T w F] [Put accumulator into w and push to stack]
+A 10 H  [:pushw: A sp F]  [Push w]
+A 11 N  [A "P 1 F" F]
+U 10 H  [U sp F]
+A 12 N  [A "T 0 F" F]
+  GK
+T 2 @   [T "$+2" F]
+A 6 H
+ZF       [:n1: (T*F)] [store at SP]
+E 1 B
+
+[Implement FORTH words (V words)]
+T 1 H   [:vcode: T pfa F] [store the address in the PFA]
+XF     [debug noop]                               [566]
+
+[ENTER/DOCOL -- Pushes IP to return stack, and then moves it to PFA]
+  GK
+  T50K P@   [store DOCOL in X]
+  TZ
+A 11 H [A rp F]
+A 11 N [A "P 1 F" F]
+U 11 H  [U rp F]
+A 12 N  [A "T0F" F]
+T 6 @    [T istr F]
+A 0 H [A ip F]
+ZF    [:istr: (T * F)]
+A 1 H [A pfa F] [PFA will be the new IP location]
+E 3 B [E rld2 F] [call NEXT, Use new IP without incrementing]
+
+
+[Binop Prefix]
+ [Copies the top two stack items to X,Y, and decrements sp twice]
+   GK
+ [Added 6 instructions to support unops, 5 here and a constant]
+ R 512 F [>> 11]
+ U 6 H   [U offset/W F]
+ S 6 H   [S offset F]
+ L 512 F [<< 11]
+ U 1 H [T pfa F]
+ A 3 N [A "E0F" F]
+ T 19 @ [T :jnop: F]
+ A 10 H
+ A 1 N
+ U 15 @
+ S 11 N [S "P1F" F]
+ U 17 @
+ A 6 H [A offset F]
+ S 6 N [S "A 1 F" F]
+ T 10 H [Put sp back, 2 lower + offset]
+ ZF [A * F]
+ T 7 H
+ ZF [A * F]
+ T 8 H
+ ZF [:jnop:(E*F)] [Goes to the word!]
+
+[Word 1: Debug: print HI]
+GK E25K T2& [ID 1] [add dict entry]
+P 8532 F    [<.HI> = 17064]
+P 0    @
+TZ
+O5@
+O6@
+O7@
+E 1 B [E next F]
+ZF
+*F
+HF
+IF
+
+
+
+
+
+
+
+
+
+
+  GK T47K P@ TZ [store copy in M]
+A 3 F
+T 9 @
+  GK
+A 8 N [A "<...>" F] [Set starting value to dots]
+T 7 H [:nch: T x F] [set X ]
+I 1 F
+A 1 F
+S 7 N [S "17" F]
+E 8 @ [E gnch F]
+A 43 F [A "1" F]
+ZF [(ret)]   [acc is exactly 0 means done]
+T 1023 F [:gnch: T devnull F]
+A 7 H [A x F]
+L 8 F [<<5]
+A 1 F
+E 1 @ [E nch F]
+
+
+[Word 2: Read and pack next word until a space is encountered,
+ X will hold the word code]
+  GK E25K T4& [ID 2]
+P 11723 D    ["<NAM>" = 23447]
+P@
+  TZ [add dict entry to jump to @]
+XF   [Debug noop]
+  GK
+A 0 @
+G 0 M
+E 1 B  [E next F] [acc is exactly 0 means done]
+
+
+
+
+
+
+
+[Word 3: Print the packed name in X]
+  GK E25K T6& [ID 3]
+P 489 D [<PCD> = 979]
+P@
+  T55K
+P@         [Store backup @ in V]
+  TZ
+A 7 H
+L 1 F
+U 7 H
+O 7 H
+L 8 F
+U 7 H
+O 7 H
+L 8 F
+T 7 H
+O 7 H
+E 1 B
+[Subwords 4,5: Print Cr, Print CrLf]
+  GK E25K T8& [ID 4]
+P 489 D [TODO]
+P@
+  TZ
+A 9 N
+G 5 V
+ GK E25K T10& [ID 5]
+P 489 D [TODO]
+P@
+  TZ
+A 9 N
+G 8 V
+
+[Word 6: EXIT]
+  GK E25K T12&
+PF [TODO:<RET>]
+P@
+  TZ
+A 11 H [A rp F]
+S 11 N [S "P 1 F" F]
+U 11 H [U rp F]
+A 6 N  [A "A 1 F" F]
+T 5 @  [T ifch2 F]
+ZF [:ifch2:]
+E 2 B [E rld F]
+
+
+[Word 7: Forth test]
+ GK E25K T14&
+PF [TODO]
+V@
+  TZ
+P257D     [2,3] [NAM,PCD]
+P515F     [4,6] [CRL,RET]
+
+[Word 8: sp@ <SLD>]
+  GK E25K T16&
+ PF [TODO]
+ C10H
+   TZ
+
+ [Word 9: rp@ <RLD>]
+   GK E25K T18&
+ PF [TODO]
+ C11H
+   TZ
+
+
+[Print Positive subroutine]
+[P6]
+GK
+  T55K
+P@         [Store backup @ in V]
+  TZ
+GK
+A3FT25@H29@VFT4DA3@TFH30@S6@T1F
+V4DU4DAFG26@TFTFO5FA4DF4FS4F
+L4FT4DA1FS3@G9@EFSFO31@E20@J995FJF!F
+
+
+[Word 10: <PXE> Print X as EDSAC literal]
+  GK E25K T20&
+PF
+P@
+  T54K
+P@         [Store backup @ in C]
+  TZ
+O 7 H
+H 13 N
+C 7 H
+R 0 D
+T 0 F
+O 14 N    [figure shift]       [681]
+  GK      [Wheeler jump to subroutine]
+A 0 @     [                          ]
+G 0 V     [                          ]
+O 15 N    [letter shift]
+A 7 H
+R 1 F
+T 0 D
+A 0 F
+ GK
+G 3 @
+O 16 N
+E 0 B
+O 17 N
+G 0 B
+
+[subword 16: print TOS number as edsac literal]
+  GK E25K T32&
+PF    [TODO]
+BC
+[subword 17:Print TOS as number (with f/d added)]
+PF   [TODO]
+B@
+  TZ
+A 7 H
+T 0 F
+E 5 C
+
+
+[Word 11-15: Add/Sub/Negate/Not/Nand]
+   GK E25K T22&
+ PF [TODO nand] [11]
+ G@
+ PF [not]      [12]
+ A3@
+ PF [negate]  [13]
+ A4@
+ PF  [Subtract] [14]
+ G5@
+ PF  [add]      [15]
+ G7@
+   TZ
+ [arrive here with top two stack items pushed to X,Y]
+ [tricks used:
+  Subtract: X - Y = -Y -Y +X +Y
+  Negate: -Y = 0 - Y (set x to 0, subtract, and increment SP)
+  Not: -1 - Y]
+ H 7 H                        [nand] [untested]
+ C 8 H
+ T 8 H
+ S 43 F [S "1" F]             [not]  [untested]
+ T 7 H                        [negate] [untested]
+ S 7 H                        [subtract] [untested]
+ S 7 H
+ A 7 H                        [add]
+ A 8 H
+ T 6 H
+ E 4 L [E pushw F]
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[Debug forth code]
+T1000K
+P130D     [1,5] [HI,CR]
+P131D     [1,7] [HI,TST]
+P1028D    [8,9] [push sp, push rp]
+P1928F    [15,16] [add, print tos as edsac]
+P2178F    [17,4] [print tos as num,CRL]
+P261F     [2,10] [NAM, PX]
+P514F     [4,4] [CRL,CRL]
+P131D     [1,7] [HI,TST]
+P512F     [4,0] [CRL,HLT]
+E25K T0H P999D  [set IP so next instruction is 2000]
+
+[Add a ZF before NEXT to allow us to stop and put more tape. Once we have
+the command line working, we can remove it]
+E25K R2047B
+ZF
+
+E25K W2047B PF [Temporary jump to stop command
+                Just run this program, and then when it stops
+                either switch tapes to your FORTH user input tape and
+                hit Reset, or just hit Reset to use the remainder of
+                this tape as input]
+
+[E25K EB PF]
+
+[End of input! You can put the following on a separate tape if you like,
+or just let the simulator keep going and it will start reading tape after
+this line]
+FOX.AND.FRG.
+
+

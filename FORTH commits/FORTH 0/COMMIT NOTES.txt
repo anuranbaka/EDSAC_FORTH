@@ -1,0 +1,19 @@
+Hello world commit! See notes below for progress
+Dec 12, 2024 - Roughly 2 month in to starting this. 2 man-weeks of work so far!
+
+EDSAC FORTH.txt 
+is my notes on making a FORTH for EDSAC, and is hand assembled into the
+FORTH Subroutines code.
+
+FORTH Subroutines.txt 
+is the real meat of what I've made so far. It currently includes an
+implementation of NEXT, along with a FORTH memory layout and demo
+word that prints "HI"!
+
+Overall I have taken an approach of writing code in a slighly 
+expanded version of the EDSAC assembly that includes constants
+and variable addresses in "" . I call this language PE for Paul-EDSAC (yes, I'm vain :-P ). 
+
+These constants are then hand assembled into the constant area in the FORTH system, and the PE is assembled into pure EDSAC. To keep constistent,
+I put the PE source lines in comments in the EDSAC assembly.
+

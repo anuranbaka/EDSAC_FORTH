@@ -1,0 +1,140 @@
+[File of subroutines for FORTH]
+
+[
+-------------
+MEMORY LAYOUT
+-------------
+* = is address (preshifted 1)
+? = is binary (<0 = True)
+
+56-63  Junk Registers
+
+
+64 IP            PFA
+66 IP_odd?       IP_word*
+68 token         &CFA
+70 W             X
+72 Y             Z
+74 SP            RP
+76 LATEST        HERE      ]
+
+[----------------------------
+Forward declarations
+-----------------------------]
+[Dictionary] T48K  P 256 F [set dict address in &(=48)]
+[Registers]  T45K  P 64  F [set register address in H(=45)]
+[Constants]  T46K  P 768 F [in N(=46)]
+[Builtins]   T53K  P 512 F [in B(=53)]
+
+[Magic Incantations to know:
+ T22K R2047 {?}
+      -- Starts assembling at the location in function parameter ?
+         Works by setting the transfer order to "T 0 ? - 1F"
+ E25K T{X}{?}
+      -- Same as above, but can offset by X
+         Works by jumping out over the transfer increment on next order
+         assembled, as long as it's positive
+ E25K E{?}
+      -- Jump out of assembler to location *
+ GK
+      -- Sets @ to next instruction
+
+]
+
+
+[constants]
+E25K TN [Assemble at N]
+P0D    [0: "1"]
+A0F    [1: "A0F"]
+P63D   [2: "0x7F"]
+E0F    [3: "E0F"]
+B1F    [4: "1F - E0F"]
+P&     [5: "dict"]
+A1F    [6: "A1F"]
+
+[the Dictionary]
+T22K R2047&    [Assemble at &]
+ZF P& [sentinal entry 0 that says to jump to ZF]
+
+
+
+[----------------------------]
+[SUB NEXT part 1: load the token at token address given in the IP}
+[----------------------------]
+
+T22K R2047 B
+GK
+A H   [A ip F]
+A 0 N [A "1" F]
+U H   [U ip F]
+R 1 F
+U 2 #H [U tmp0 D / U IP_odd? D]
+L 0 D
+T 3 H  [T tmp1 F/ T &IP_word F]
+A 3 H  [A tmp1 F]
+L 0 D
+A 1 N  [A "A 0 F" F]
+T 11 @  [T ifetch F]
+ZF     [:ifetch: (A * F) ]
+A 2 H  [A tmp0 F / A IP_odd? F]
+G 15 @ [G lo F]
+R 64 F
+T 4 H [:lo: T tmp2 F / T token F]
+H 2 N [H "0xFF" F]
+C 4 H [C tmp2 F / C token F]
+U 4 H [U token F]
+[TOKEN is in acc and correct]
+XF [No-op, in case we want to temp jump somewhere]
+[----------------------------]
+[SUB NEXT part 2:  load the CFA,PFA for TOKEN given in the accumulator
+ and GOOOOOOOOOO!}
+[----------------------------]
+GK
+L 1 F
+A 5 N [A "dict" F]
+A 6 N [A "A 1 F" F]
+T 4 @ [T fchcfa F]
+ZF    [:fchcfa: (A*F) ]
+A 3 N [ A "E 0 F" F]
+U 9 @ [ U t1 F ]
+A 4 N [ A "1F - E 0 F" F ]
+T 1 H [ T pfa F ]
+ZF    [ :t1: (E * F) Jump to code!]
+
+
+
+
+
+
+
+
+[ Debug test case: use initial orders word 18
+= T 20 F = 20520 = 0x5028
+this gives:
+v36  0x50=80 @161
+v37  0x28=40 @81
+v38  0xC0=192->64 ]
+T64K P18F [load 36 into IP, so next accesses 37]
+
+
+
+T900K [Debug: print HI]
+GK T49K P@ TZ [in L]
+O5@
+O6@
+O7@
+ZF
+ZF
+*F
+HF
+IF
+
+[Debug Dictionary entries]
+T22K R2047& G80K TZ[debug: assemble at &+80 = 336]
+ZF P&
+E25K T80& [debug: assemble at &+80 = 336]
+ZF PL
+
+E25K EB PF
+
+

@@ -1,0 +1,5 @@
+FORTH WORKS! But I didn't clean up after I got it going, so this commit is just to preserve the state of the codebase before I start working again. 
+
+I took a long break since January, when the FORTH system essentially worked (had colon compile, interpreter, and some math) but had some major bugs (ex multiply didn't work as expected, etc) and there was a distinct lack of literals, which has plagued me for a long time.
+
+I've had several plans to implement literals, but they all get tossed since I can't make up my mind. I probably just need to try some.

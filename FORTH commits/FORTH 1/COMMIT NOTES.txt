@@ -1,0 +1,7 @@
+I now have 3 words working, and some demo byte code!
+The words are
+0: halt the machine
+1: Print "HI" <-- let's us check we didn't break the interpreter
+2: Read a word from input into a packed 3 letter code, and discard following space
+
+The todo is that I need to get packed 3 letter codes to start with "."'s in unused letters, ('.' is no-op on the teletype)

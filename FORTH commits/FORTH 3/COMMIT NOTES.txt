@@ -1,0 +1,6 @@
+Remade HI, NAM, PCD on Dec 12, as well as impls for CR, CRL; Added chimeric subwords CR, CRL on Dec 13
+
+Work estimate so far: [2 weeks before versioning started + 6hrs + 3hrs +3hrs, of which 3 hrs today(dec13)]
+	(In the future, I will consider 5hrs a full work day, due to my other commitments at home)
+
+See the added instructions in EDSAC FORTH.txt for instructions on how to demo each word added

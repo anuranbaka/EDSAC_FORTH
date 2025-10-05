@@ -1,0 +1,67 @@
+[Word 10: Binop Prefix/DROP]
+ [Copies the top two stack items to X,Y, and decrements sp]
+   GK E25K T20&
+ PF [TODO]
+ P@
+   TZ
+ A 10 H
+ A 1 N
+ T 7 @
+ S 11 N
+ T 9 @
+ S 1 N
+ T 10 H [Put sp back one less]
+ ZF [A * F]
+ T 7 H
+ ZF [A * F]
+ T 8 H
+ A 1 H [A pfa F]
+ A 3 N
+ GK T 1 @
+ (goto op)
+ [op saves result to w and calls push w
+ T w F
+ E pushw F]
+
+ [Word 11: Push W]
+    GK E25K T22&
+ PF [TODO]
+ P 4 L  [This is the label :pushw:]
+   TZ
+
+ [Word 12:
+
+ A x F
+ A y F
+ T w F
+ goto push w]
+
+
+
+ [Word 10/11: Add/Sub/Negate]
+
+   GK E25K T20&
+ PF [TODO]
+ B@
+   TZ
+ [arrive here with top two stack items pushed to X,Y]
+ [tricks used:
+  Subtract: X - Y = -Y -Y +X +Y
+  Negate: -Y = 0 - Y (set x to 0, subtract, and increment SP)
+  Not: -1 - Y]
+ H 7 H                        [nand]
+ C 8 H
+ T 8 H
+ S 43 F [S "1" F]             [not]
+ T 7 H                        [negate]
+ A 10 H [A sp F]
+ A 11 N [A "P1F" F]
+ T 10 H [T sp F]
+ S 7 H                        [subtract]
+ S 7 H
+ A 7 H                        [add]
+ A 8 H
+ T 6 H
+ E 4 L [E pushw F]
+
+ -1 , invert = negate

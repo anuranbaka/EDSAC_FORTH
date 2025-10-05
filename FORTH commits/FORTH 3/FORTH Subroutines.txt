@@ -1,0 +1,223 @@
+[File of subroutines for FORTH]
+[Over time, this file seems to be
+evolving into a full FORTH system]
+[For now, the usage is
+1. Run this file by pressing "Start"
+2. {Optional} Switch tapes for use input (See end of file for instructions)
+3. Press "Reset" to run demo FORTH code
+]
+
+[
+-------------
+MEMORY LAYOUT
+-------------
+* = is address (preshifted 1)
+? = is binary (<0 = True)
+
+56-63  Junk Registers
+
+
+64 IP            PFA        0 1
+66 IP_odd?       IP_word*   2 3
+68 token         &CFA       4 5
+70 W             X          6 7
+72 Y             Z          8 9
+74 SP            RP         10 11
+76 LATEST        HERE       12 13]
+
+[----------------------------
+Forward declarations
+-----------------------------]
+[Dictionary] T48K  P 256 F [set dict address in &(=48)]
+[Registers]  T45K  P 64  F [set register address in H(=45)]
+[Constants]  T46K  P 768 F [in N(=46)]
+[Builtins]   T53K  P 512 F [in B(=53)]
+[SP and RP]  E25K T10H P16H P24H [=register regions 16,24]
+
+
+[Magic Incantations to know:
+ T22K R2047 {?}
+      -- Starts assembling at the location in function parameter ?
+         Works by setting the transfer order to "T 0 ? - 1F"
+ E25K T{X}{?}
+      -- Same as above, but can offset by X
+         Works by jumping out over the transfer increment on next order
+         assembled, as long as it's positive
+ E25K E{?}
+      -- Jump out of assembler to location *
+ GK
+      -- Sets @ to next instruction
+
+]
+
+
+[constants]
+E25K TN [Assemble at N]
+P0D    [0: "1"]
+A0F    [1: "A0F"]
+P63D   [2: "0x7F"]
+E0F    [3: "E0F"]
+B1F    [4: "1F - E0F"]
+P&     [5: "dict"]
+A1F    [6: "A1F"]
+P8D    [7: "17"]
+P8456F [8: "<...>"]
+@1536F [9: <CrLfP> << 2]
+
+
+[the Dictionary]
+T22K R2047&    [Assemble at &]
+ZF P& [sentinal entry 0 that says to jump to ZF]
+
+
+
+[----------------------------]
+[SUB NEXT part 1: load the token at token address given in the IP}
+[----------------------------]
+
+E25K TB
+GK
+A H   [A ip F]
+A 0 N [A "1" F]
+U H   [U ip F]
+R 1 F
+U 2 #H [U tmp0 D / U IP_odd? D]
+L 0 D
+T 3 H  [T tmp1 F/ T &IP_word F]
+A 3 H  [A tmp1 F]
+L 0 D
+A 1 N  [A "A 0 F" F]
+T 11 @  [T ifetch F]
+ZF     [:ifetch: (A * F) ]
+A 2 H  [A tmp0 F / A IP_odd? F]
+G 15 @ [G lo F]
+R 64 F
+T 4 H [:lo: T tmp2 F / T token F]
+H 2 N [H "0xFF" F]
+C 4 H [C tmp2 F / C token F]
+U 4 H [U token F]
+[TOKEN is in acc and correct]
+XF [No-op, in case we want to temp jump somewhere]
+[----------------------------]
+[SUB NEXT part 2:  load the CFA,PFA for TOKEN given in the accumulator
+ and GOOOOOOOOOO!}
+[----------------------------]
+GK
+L 1 F
+A 5 N [A "dict" F]
+A 6 N [A "A 1 F" F]
+T 4 @ [T fchcfa F]
+ZF    [:fchcfa: (A*F) ]
+A 3 N [ A "E 0 F" F]
+U 10 @ [ U t1 F ]
+A 4 N [ A "1F - E 0 F" F ]
+T 1 H [ T pfa F ]
+XF    [debug noop]
+ZF    [ :t1: (E * F) Jump to code!]
+
+
+[Word 1: Debug: print HI]
+GK E25K T2& [ID 1] [add dict entry]
+P 8532 F    [<.HI> = 17064]
+P 0    @
+T49K P@ TZ [in L]
+O5@
+O6@
+O7@
+E 0 B [E next F]
+ZF
+*F
+HF
+IF
+
+
+
+[Word 2: Read and pack next word until a space is encountered,
+ X will hold the word code]
+  GK E25K T4& [ID 2]
+P 11723 D    ["<NAM>" = 23447]
+P@
+  TZ [add dict entry to jump to @]
+XF   [Debug noop]
+  GK
+A 8 N [A "<...>" F] [Set starting value to dots]
+T 7 H [:nch: T x F] [set X ]
+I 1 F
+A 1 F
+S 7 N [S "17" F]
+E 8 @ [E gnch F]
+A 43 F [A "1" F]
+E 0 B  [E next F] [acc is exactly 0 means done]
+T 1023 F [:gnch: T devnull F]
+A 7 H [A x F]
+L 8 F [<<5]
+A 1 F
+E 1 @ [E nch F]
+
+
+
+
+
+
+[Word 3: Print the packed name in X]
+  GK E25K T6& [ID 3]
+P 489 D [<PCD> = 979]
+P@
+  T55K
+P@         [Store backup @ in V]
+  TZ
+A 7 H
+L 1 F
+U 7 H
+O 7 H
+L 8 F
+U 7 H
+O 7 H
+L 8 F
+T 7 H
+O 7 H
+E 0 B
+[Subwords 4,5: Print Cr, Print CrLf]
+  GK E25K T8& [ID 4]
+P 489 D [TODO]
+P@
+  TZ
+A 9 N
+G 5 V
+ GK E25K T10& [ID 5]
+P 489 D [TODO]
+P@
+  TZ
+A 9 N
+G 8 V
+
+
+
+
+
+[Debug forth code]
+T1000K
+P130D     [1,5] [HI,CR]
+P257D     [2,3] [NAM,PCD]
+P512F     [4,0] [CRL,HLT]
+E25K T0H P999D  [set IP so next instruction is 2000]
+
+[Add a ZF before NEXT to allow us to stop and put more tape. Once we have
+the command line working, we can remove it]
+E25K R2047B
+ZF
+
+E25K W2047B PF [Temporary jump to stop command
+                Just run this program, and then when it stops
+                either switch tapes to your FORTH user input tape and
+                hit Reset, or just hit Reset to use the remainder of
+                this tape as input]
+
+[E25K EB PF]
+
+[End of input! You can put the following on a separate tape if you like,
+or just let the simulator keep going and it will start reading tape after
+this line]
+PC.
+
+

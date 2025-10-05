@@ -1,0 +1,14 @@
+Crap! Forgot to save! so the following doesn't work:
+
+Added several base words and demo to show them
+Run FORTH Subroutines.txt to see demo of:
+
+Code  	Effect
+1 	Print HI
+2 	Read in the next word (ABC from the end of the file)
+5	Duplicate the word in XY
+7	Print carriage return
+4	Swap XY
+3	Print the word (over top of HI)
+6	Print CRLF
+0	Stop

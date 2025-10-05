@@ -1,0 +1,75 @@
+T 64 K GK
+P101D
+[ assembler parameters
+F @ D ! H N M & L X G A B C V
+]
+
+
+PF
+
+T 200 K GK
+*2047f
+
+[Decompose IP to word and even/odd]
+t 102 K GK
+A 64 F
+R 1 F
+U 66 D   [IP_odd?]
+L 0 D
+T 67 F
+A 67 F
+L 0 D
+T 67 F   [IP_word]
+[end Decompose]
+
+[Lookup token at IP]
+[end Lookup token]
+
+[Convert token to CFA]
+[end Convert token]
+
+[jump to CFA]
+Z F
+p 65535 d
+p 65535 d
+p 65535 d
+
+A 50 F
+R1F
+[ Time to write a FORTH!
+
+
+
+-------------
+MEMORY LAYOUT
+-------------
+* = is address (preshifted 1)
+? = is binary (<0 = True)
+
+56-63  Junk Registers
+
+
+64 IP            ???
+66 IP_odd?       IP_word*
+68 token         CFA*
+70 W             X
+72 Y             Z
+74 SP            RP
+76 LATEST        HERE
+
+
+]
+
+
+
+
+
+
+ZF
+EZPF
+
+
+[50 - IP]
+[51 - ?]
+[53/52 - IPword/ IPodd]
+

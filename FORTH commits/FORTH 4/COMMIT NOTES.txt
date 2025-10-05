@@ -1,0 +1,12 @@
+Added support for FORTH words, by including ENTER/DOCOL and EXIT. Also modified NEXT for native support.
+
+Work estimate so far: [2 weeks before versioning started + 12hrs,
++ 1 hr 12/15? thinking about chimeric push and pop word tails (not done!)
++ 2 hr 12/16 EXIT and ENTER impls
++ 2 hr 12/17 Debug EXIT and ENTER and document them, and demo FORTH words
++ 2 hr 12/18 Write short FORTH word system and demo it, plus this commit
+]
+
+This commit demonstrates using the top bits of the address to do special things (in this case indicate a FORTH word). 
+I have also reduced the overhead of a FORTH word to 2.5 machine words exactly, from 3.75 average! FORTH words can now 
+be jammed together without padding due to no longer requiring machine code at the beginning. FORTH words are now have less overhead than CODE words!

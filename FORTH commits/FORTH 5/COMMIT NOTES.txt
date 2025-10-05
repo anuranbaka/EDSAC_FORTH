@@ -1,0 +1,6 @@
+1) Added custom CFA code (C) that push values at fixed addresses. 2) Added support for binary, unary, and no-ary CODE words, again via custom CFA codes (G-binary, A-unary, B-noary). 3) Added several CODE words for arithmetic and printing.
+
+Work estimate not updated!
+
+
+The addition of special CFA codes for *ary ops lets me make words without wasting a ton of instrutions to pop the top few stack positions. Instead all *ary words get the top two stack entries in X(top) and Y(second to top), and the stack adjusted to assume they will will push a result from W. These words should end with a jump to :pushw:. 

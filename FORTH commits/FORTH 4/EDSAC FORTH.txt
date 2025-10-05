@@ -1,0 +1,486 @@
+[ EDSAC FORTH basics:
+
+We need to make some changes to get a FORTH that runs on EDSAC. 
+
+The first big challenge is that FORTH is interactive, but the EDSAC only takes input from its paper tape,
+ or a dial that has numbers 0-9! The dial is just too limited, so we have to somehow deal with the tape.
+Clearly a user would need to punch a new tape for every line of input!
+The EDSAC simulator also doesn't allow interactively punching tape.
+
+But there is a workaround! The simulator lets you run a new tape without resetting the machine, 
+just like the real EDSAC. By having a second tape open, and repeately erasing it and typing our input,
+we can get the input needed for FORTH. (Confusingly, the button to "run EDSAC without resetting the memory" 
+is called "Reset"!)
+
+That opens another can of worms though: paper tape doesn't have spaces! The most fundamental character
+in FORTH! Instead, we'll need something else to separate words. EDSAC can also output a ":", but can't represent
+a ":" on the paper tape for input. It can't do most special characters at all in fact!
+To solve this we will use the following mapping:
+        
+	------------
+	CHAR | EDSAC
+	-----|------
+	 " " | "." (blank on the physical tape)
+	 ":" | "&" (delta on physical tape)
+	 
+Thankfully EDSAC simulator does support @ and ! and we'll use those for roughly the usual FORTH meanings.
+Other than that, we will have to write out equivalents, such as ADD instead of "+"
+
+----------------------------------------
+
+Another problem is numbers. EDSAC only has 5 bit characters (32 values), so it can't represent letters 
+separately from digits. Instead it just reuses codes, and you have to figure out letter vs number from context.
+For example, the letter "Y" and the number "6" are literally indistinguishable!
+
+We need some way to tell EDSAC FORTH that we want to interpret characters as numbers. It turns out there's a 
+pretty elegant way to do this: The EDSAC simulator uses the number character "#" to replace pi on the original 
+tapes. This also happens to be the symbol sent to the teletypewriter (the EDSAC output) to put it into number
+mode. The "*" character, corresponding to all holes punched in the tape, sets the teletype back into letter mode.
+
+We can have FORTH interpret it the same way: The "#" starts a number, and "*" goes back to words.
+So we can write 
+	2 DUP + 38 - 
+as
+	#2*.#2*.DUP.ADD.#38*.SUB
+Not the best, but it is just readable, and we can add whitespace (which the simulator ignores) for a little 
+bit of improvement
+
+-------------------------------------
+
+Space is also a big issue on the EDSAC. There are only 1024 words of memory (17 bits each). A typical useful
+FORTH has around 120 words, with each word having a dictionary entry like:
+LINK_PTR | FLAGS | NAME | CODE_POINTER
+
+Even if we had just those and allowed a 3 character name and no FLAGS, we would use up more than half our memory! 
+That's without having any actual word definitions!
+
+So instead we'll compress it. 
+First, there will be no LINK pointers. All dictionary entries will be stored in a 
+long list, and just point out to their code. 
+Second, we will compress names by jamming 3 5-bit characters into a 17-bit word.
+All words will have only 3 letters, with unused letters left 0 ('P' on EDSAC)
+We'll jam the HIDDEN and IMMEDIATE flag bits in the two high bits of the NAME word.
+
+This leaves us with a two word dictionary entry:
+FLAGS(2b), NAME(3 x 5b) | CODE_POINTER
+
+[Possible alternative! Could store the code pointer as (Dict offset(8b), codepointer(7b)) since there can only be 256 words
+ and 1024 jump addresses. However this would require using the sandwich digit :-( ]
+
+----------------------------------
+The machine:
+
+Registers: 
+IP SP RP HERE -- the usual!
+PFA - stores the address of the CFA of the current word. used for accessing parameters. updated as a side effect of entering a word
+X, Y - registers that are often used to temporarily store the top of the stack for common binary operations
+
+The NEXT snippet:
+All FORTH asm words will end with a call to NEXT
+(convention: I'll write it in a pseudo-code that's "EDSAC with constants"
+      Things in "" are literals that we expect to be stored somewhere else
+      Other names are just variables representing memory locations of data or labels)
+
+next: 
+  	[ IP += 1
+   	  jmp [IP] ]
+	A ip F
+   rld: A "1" F
+	U ip F	
+	A "A 0 F" F
+	T ifetch F
+ ifetch: () // loads [ip]
+	A "E 0 F" F
+	T t1 F
+ t1:	(E * F) // jumps to [ip]
+Note: A * in an assembly instruction indicates that it is expected to be rewritten to an instruction with a computed address.
+
+
+All FORTH words written in FORTH should end with a call to EXIT
+
+exit:    [ RP -= 1
+          acc = [RP + 1]
+          (jump to NEXT code as if we just loaded IP into acc) ]
+	A rp F
+        S "P 1 F" F 
+        U rp F      // decrement rp
+	A "A 1 F" F //create "load [rp+1]" instruction, which gets the return address
+        T ifch2 F
+  ifch2: (A * F)    // old ip is now in acc
+	E rld F     // go add 1, update ip and continue executing
+
+Using the conventions above, every FORTH or ASM word has 3w of overhead. 2w for the dictionary entry, and 1w for NEXT or EXIT.
+Not great, but it means "only" 360w of our memory will go to overhead in a 120 word FORTH. FORTH words will also start with
+a DOCOL.
+
+.... Actually, that sounds pretty bad. If I assume we need 6 words in a typical definition (very light!), we're hosed!
+..... so let's think of this as a token threaded FORTH instead. We can have a virtual address space of 11 bits instead
+of 10 bits, and each word will be 8 bits. This is also convenient because we can store two 4 bit characters in each word,
+and packing strings is super important! While we're thinking of virtual address spaces, I also think string packing is super important, so I wonder if a packing with 3 characters per word is workable? Working on the following game tree for a minimal
+text adventure, I see we need ~300 characters for a basic game :-E 
+
+
+Game demo text:"You wake up on a beach on a small island and see a larger island in the distance. You feel too weak to swim there. Your health is x? Do what? Forage, Fish, Rest ; Found berries! ; Got lost and tired!; Fish ate you; Slept well; Mosquitoes! ; You feel good enough and finally swim to the mainland!"
+
+.... let's put the character stuff on hold and focus on token threading first
+
+
+--------Token threading with mixed indirect threading------------------------------------
+Each token will jump to the corresponding code address. For indirect words, this address will contain a jump to the actual
+code, which can look back at the computation it just jumped from to find parameters. For direct words it just runs.
+
+Memory layout:
+1. Initial orders and lettered parameters
+2. Forth registers
+3. The WORD buffer
+4. The currently compiling word name and a pad word
+5. The Dictionary (128 entries of 2 words each)
+6. Builtin code
+7. User area
+
+When a colon compile happens, a new token and CFA are added to the next open slot in the dictionary. The CFA,
+and enough space for the parameters go in the user area.
+
+Stored in dictionary:
+Name (3chars packed) | CFA
+
+General format for words' user area part:
+ CF <-- the code field. either first instruction, or a jump to it
+ PF0 <- the first parameter. CODE words don't officially have parameters since more code is here, so PFA is meaningless
+ PF1
+ ...
+
+So more specifically, 
+
+	Stored in user area for FORTH word:
+	 CF <-- jump to DOCOL code
+	 PF0 <- the first parameter. CODE words don't officially have parameters since more code is here, so PFA is meaningless
+	 PF1
+	 ...
+
+	Stored in user area for CODE word:
+	 CF0
+	 CF1
+	 ...
+	 E exit F <-- note: the accumulator needs to be clear before calling exit, unless you want to make a relative jump! 
+
+And because we are token threaded, each PF actually takes up one byte of a word, so two pack in per word (and the highest bit is 0). For words with an odd length, I assume there will be some padding, but it doesn't really matter.
+
+Now FORTH words are 2 words of dictionary + length/2 + 0.75 for EXIT. Still bad, but maybe tolerable? CODE words are length + 3, which seems mostly okay?
+
+Chimeric words: Some (most?) words don't look at their PFA and can be called from inside CODE words by a simple jump. 
+For example "Push X" is an operation that doesn't need to know its PFA. It can be treated as raw code or a FORTH word
+
+Now, let's rewrite NEXT for our token threaded code. I'll write it in a pseudo-code that's "EDSAC with constants":
+next:
+	[IP += 1 
+         CFA = dict + [IP]*2 + 1F // dict entries are two words, and CFA is the second one
+         PFA = CFA + 1F
+         jmp CFA 
+	 Note: due to token threading [IP] is nontrivial!]
+	A ip F
+   rld: A "1" F
+	U ip F	
+        R 1 F           // >>2 to get last bit in low word's sign bit
+        U tmp0 D	// Save low word (and clobber high)				SAVE BYTE OFFSET 
+        L 0 D           // Left shift 1 to keep IP word address in high word
+	T tmp1 F	// Save the high word to zero the low bits
+	A tmp1 F        // Shift the high word to address position
+	L 0 D 		// .
+	T tmp1 F	// . [OPTIONAL, redundant with ifetch]				SAVE WORD ADDRESS OF IP
+	A tmp1 F        // Reload word
+	L 0 D		// Move to address position
+	A "A 0 F" F     // Convert to load instruction
+	T ifetch F      // .
+ ifetch: (A * F) 	// loads word of [ip]
+        A tmp0 F        // load byte offset into sign bit
+        G lo F		// OPTION: Could be E if you want to swap endians
+        R 64 F          // >>8
+    lo: T tmp2 F
+        H "0xFF" F
+        C tmp2 F        // TOKEN is finally loaded into the accumulator!
+	U token F	// 								SAVE TOKEN
+	L 1 F 		// (TOKEN*2)F (and shift one more to get into addresss position)
+        A "dict" F 	//
+        A "1F"  F 	// dict + (TOKEN*2)F + 1F = address of CFA
+	A "A 0 F" F
+	T fchcfa F
+fchcfa: (A * F)		// Load the CFA to accumulator
+	A "E 0 F" F	
+	U t1 F          // t1 jumps to codefield
+	A "1F - E 0 F" F // Subtract off the opcode we added and add 1F to get PFA = CFA + 1F
+	T pfa F          // Store PFA for the word to use if needed
+ t1:	(E * F)          // Jump to the word!
+ ...
+ tmp0:  () // MUST BE EVEN ADDRESS  byte offset in word(sort of!)
+ tmp1:  () //			    word addr of [IP] (possibly un-offset to addr position)
+ tmp2:  ()
+
+WOW! In x86 the code for NEXT is two instructions. Here it's like ~25 words!
+Surprisingly EXIT is unchanged as far as I can tell?
+
+It turns out NEXT is really all we need to start writing FORTH words as long as we hand code the dictionary entries. 
+Time to set up a dictionary and write Hello World!
+
+First we declare the memory location for the dictionary will be at function parameter '&' (48):
+	[Dictionary] T48K  P 256 F [set dict address in &(=48)]
+Next the actual base dictionary, with a single two word entry to catch accidental jumps to 0:
+> T22K R2047&    [Magic control sequence for "assemble at &"]
+	ZF 
+	P& [sentinal entry 0 that says to jump to ZF(at &)]
+
+
+
+As an aside: notice that the above code isn't really EDSAC instructions. It's a slightly higher level language that includes
+labels, variables and compile time constant expressions. Since there's no compiler for ...whatever that language is, we simply store the constants in a constant pool by hand and hand compile the rest. In the real code, I write the source line in the 
+comment so you can see where it came from. I keep the constant pool at function letter 'N'.
+ 
+Our first word will be a Hello World modified from the program given with the simulator. 
+We'll call it "HI". I tried some test code, and it seems that padding unused letters with '.' is the way to go,
+since it can't appear in a word, and prints as nothing. We'll use <> to denote a packed word.
+So 
+	<HI> = <.HI> = '.'*1024 + 'H'*32 +'I' = 16*1024 + 21*32 + 8 = 17064 = P 8532 F
+
+Here's the code
+[Word 1: Debug: print HI]
+> GK E25K T2& [ID 1] [add dict entry at offset 2*ID]
+	P 8532 F    [<.HI> = 17064]
+	P 0    @
+> T49K P@ TZ [in L]
+	O5@
+	O6@
+	O7@
+	E next F
+	ZF
+	*F
+	HF
+	IF  
+
+We can run this by writing some demo FORTH code into memory and jumping to it:
+> T1000K
+	P 128 F [ Forth bytecode pair {1,0} = 256*1 + 0 = 256 = P 128 F ]
+> E25K T ip F [Assemble at IP]
+	P999D  [set IP so next instruction is 2000]
+
+
+Run that and it will print "HI"!!! We have a first program! 
+(A copy is saved in "FORTH Subroutines vHI.txt" if you want to just try it without hand assembling)
+
+
+Besdes being a great first word, HI is also a good tool to run after defining new words to make sure we didn't break the system somehow, which is annoyingly easy in EDSAC with everythng crammed so close in memory.
+
+Since we don't have a stack yet, I'll write some some quick words that just use virtual machine registers. First is I 
+really want to stop having to compute the name code by hand so I'll write a word <NAM> to store the name code in X:
+  GK E25K T4& [ID 2]
+P 11723 D    ["<NAM>" = 23447]
+P@
+  TZ [add dict entry to jump to @]
+XF   [Debug noop]
+  GK
+A 8 N [A "<...>" F] [Set starting value to dots]
+T 7 H [:nch: T x F] [set X ]
+I 1 F
+A 1 F
+S 7 N [S "17" F]
+E 8 @ [E gnch F]
+A 43 F [A "1" F]
+E 0 B  [E next F] [acc is exactly 0 means done]
+T 1023 F [:gnch: T devnull F]
+A 7 H [A x F]
+L 8 F [<<5]
+A 1 F
+E 1 @ [E nch F]  
+
+This will store the name in X (register 7, address 71 in the current implementation)
+We can rewrite the demo FORTH to:
+P256D     [2,1] [NAM,  HI]
+PF        [0,0] [HLT, HLT]
+And then write 
+	HI.
+at the end of the tape.
+
+I've saved a copy of this into "FORTH Subroutines vNAM.txt", with a special little trick that halts the machine
+before the first word, so you can use a separate input tape if you like, or just press Reset to use the demo tape.
+You can see the code for HI (17064) shows up in the X register (address 71).
+
+
+
+Word 3: I also really want a way to print the encoded names. It will also be convenient to use this 3 per word packing
+to store constant strings to print.
+
+[Word 3: Print the packed name in X]
+> GK E25K T6& [ID 3]
+	P 489 D [<PCD> = 979]
+	P@
+> T55K  
+	P@ [Store backup @ in V]
+> TZ
+	A x H
+	L 1 F
+	U x H
+	O x H
+	L 8 F
+ltr2:	U x H
+	O x H
+	L 8 F
+ltr3:	T x H
+	O x H
+	E 0 B 
+(I've written a demo with that word called <PCD> for "print coded characters" at "FORTH Subroutines vPCD.txt"
+it runs like the previous demo, but prints back the code)
+
+Words 4 & 5: I really want a word to print CRLF, and one for just CR, since those really help readability.
+This is also a good time to show off chimeric words. The CR word will simply load a constant similar to <CrLfP> 
+into the accumulator and jump into the PCD word as if it was about to print the final character. Similarly, the
+CRLF word will jump in as if it's about to print the last two characters. To get this to work, I need to store offsets
+from the original PCD word, so I've stored its @ in V. I will use this convention whenever I work with chimeric words
+in the future, or more generally need to clobber @ temporarily.
+
+[Word 4: Print Cr]
+> GK E25K T8& [ID 4]
+	P 0 F [TODO make a name]	
+	P@
+> TZ
+	A "<CrLfP> << 2" N
+	G 5 V 			[ie G ltr2 F]
+
+[Word 5: Print CrLf]
+> GK E25K T10& [ID 5]
+	P 0 F [TODO make a name]
+	P@
+> TZ
+	A "<CrLfP> << 2" N
+	G 8 V			[ie G ltr3 F]
+This is demoed in "Demo vCRL.txt"
+
+Ok, now that we can do some basic stuff, it's time to enable FORTH words. We already have EXIT, which lets us return from a word, but we don't have ENTER (often called DOCOL for "do colon"), which lets us go into a FORTH word. ENTER isn't really a FORTH word as such -- more like a code snippet that we need to jump to in order to enter the FORTH word that the IP is pointing at.
+
+[ENTER/DOCOL]
+	A rp F
+	A "P 1 F" F
+	U rp F 
+	A "T0F" F
+	T istr F
+	A ip F
+istr: (T * F)
+	A pfa F [PFA will be the new IP location] 
+	E rld2 F [call NEXT, Use new IP without incrementing]
+
+The demo is in "Demo vFORTHWORD.txt"
+
+
+Now that we have FORTH words working, it really feels bad to waste a whole machine word with a jump to DOCOL at the beginning of each instruction. After thinking about it, I've decided that we can use the unused bits in the address to encode whether the word is a FORTH word. Conveniently we can add a V (i.e. -1 on EDSAC) at the begining of the address word to indicate the addres should be taken as a FORTH word. EDSAC implements jump-if-negative as one of it's basic instructions, so we can check this almost for free. We can also use this trick later with a different prefix letter to implement a few other special word types like IMMEDIATE and variables. To do this we modify the end of NEXT slightly, and move DOCOL so NEXT will fall through to it on FORTH words:
+
+fchcfa: (A * F)		// Load the CFA to accumulator
++	G nadr F 	// If the address is negative, use a special command, like V for FORTH words
+	A "E 0 F" F	
+	U t1 F          // t1 jumps to codefield
+	A "1F - E 0 F" F // Subtract off the opcode we added and add 1F to get PFA = CFA + 1F
+	T pfa F          // Store PFA for the word to use if needed
+ t1:	(E * F)          // Jump to the word!
+nadr: 	A "Q0F" F 	[arrive here if negative opcode in address]
+	E vcode F 	[for V(-1) opcodes] [Q602f]
+	ZF     		[trap if unknown negative command type]
+vcode:	T pfa F  	[store the address in the PFA]
+	XF     		[debug noop] 
+[... DOCOL code goes here ...] 
+
+This is demoed in "Demo vSHORTWORD.txt"
+
+
+
+
+Next, I'm a little tired of not having a stack. To fix that, I'm going to make a couple of chimeric word snippets that push the accumulator onto the stack or pop to the address pointed to by the accumulator. This will get us @, !, sp@, rp@, and may be used as the tail end of words like +, -, not, nand, and. 
+TODO:do it!
+
+
+
+Note: Pointers to a byte address will be called "hemipointers". They will be stored without the 1 digit shift, so that 
+high bits can be used as a normal address, and the lowest bit is the high-or-low bit.
+
+Now we need to be able to colon compile. 
+1. read in 3 character name, discard training spaces
+2. create dictionary entry just after the end of the dictionary
+3. read in next word, discard spaces
+4. lookup word in dictionary
+5. if word is compile word, run it, else
+6. Increment the user space hemipointer
+7. save the token code at the hemipointer
+
+
+
+
+
+
+
+
+
+Name | CodeAddress
+
+
+Okay, so now we need our basic commands:
+    I/O
+	key - read a character
+	emit - write a character
+	CR - write a newline
+        DOT - write the top of the stack as a base 10 number
+
+    arithmetic
+	+
+	-
+	*
+	>>
+	<<
+
+    Conditions - For architechture reasons, < 0 is true, >= 0 is false
+	>
+	<
+	>=
+	<=
+        and
+	or
+
+    Control Flow
+	jmp
+        jl   - jump less than
+	jge  - jump greater than or equal
+	if
+        then
+	else
+
+    Memory
+	@
+	!
+
+    State
+	BASE
+
+    Hidden internal words:
+        LIT8  - Followed by a 8 bit literal
+	LIT16 - Followed by a 16(17?) bit literal
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+	  
+
+These include 
+
+Shortening names
+Going through them in no particular order
